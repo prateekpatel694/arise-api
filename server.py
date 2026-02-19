@@ -11,8 +11,9 @@ app = FastAPI()
 # --- REVISED CONFIGURATION ---
 # Standard Format (Mobile Hotspot ke liye sabse best)
 # Standard Connection String (Mobile Hotspot ke liye Bulletproof)
-MONGO_URI = "mongodb://monar:king123@cluster0-shard-00-00.vytusx9.mongodb.net:27017,cluster0-shard-00-01.vytusx9.mongodb.net:27017,cluster0-shard-00-02.vytusx9.mongodb.net:27017/shadow_db?ssl=true&replicaSet=atlas-h1v0n8-shard-0&authSource=admin&retryWrites=true&w=majority"
-# Connection Setup with Timeout
+# Sirf ye ek line honi chahiye database connection ke liye
+# Sirf ye ek line honi chahiye database connection ke liye
+MONGO_URI = "mongodb+srv://monar:king123@cluster0.z6n8r.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = client.shadow_db
 users_collection = db.users
