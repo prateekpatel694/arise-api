@@ -13,7 +13,7 @@ app = FastAPI()
 # Standard Connection String (Mobile Hotspot ke liye Bulletproof)
 # Sirf ye ek line honi chahiye database connection ke liye
 # Sirf ye ek line honi chahiye database connection ke liye
-MONGO_URI = "mongodb+srv://monar:king123@cluster0.z6n8r.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+MONGO_URI = "mongodb+srv://monar:king123@cluster0.vytusx9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = client.shadow_db
 users_collection = db.users
