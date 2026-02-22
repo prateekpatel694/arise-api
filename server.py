@@ -30,13 +30,32 @@ class TaskUpdate(BaseModel):
     task_index: int
     completed: bool
 
-TASKS_LIST = [
-    {"task": "Morning: Wake, Meditate, College", "time": "06:00", "duration": 60},
-    {"task": "Evening: Gym Warfare (1h 45m)", "time": "17:00", "duration": 105},
-    {"task": "Night: Trading, Aptitude, Coding", "time": "21:00", "duration": 120},
-    {"task": "Late Night: Content Creation", "time": "23:00", "duration": 60}
-]
 
+TASKS_LIST = [
+    # Phase 1: THE AWAKENING
+    {"task": "Utho & 1 Glass Paani", "time": "07:30", "duration": 5},
+    {"task": "Quick Fresh & Meditation", "time": "07:35", "duration": 15},
+    {"task": "Shower, Breakfast & Ready", "time": "07:45", "duration": 45},
+    {"task": "Commute to College", "time": "08:30", "duration": 30},
+    
+    # Phase 2: THE BATTLEFIELD
+    {"task": "COLLEGE HOURS + Lunch Missions (Reading, English, Walk)", "time": "09:00", "duration": 495},
+    
+    # Phase 3: THE PHYSICAL WARFARE
+    {"task": "Ghar wapsi + Gear up", "time": "17:15", "duration": 15},
+    {"task": "GYM WARFARE (Push limits!)", "time": "17:30", "duration": 105},
+    {"task": "Shower & Fresh", "time": "19:15", "duration": 30},
+    {"task": "Hair Oiling + Immunity Drink", "time": "19:45", "duration": 30},
+    {"task": "Dinner (Recovery fuel)", "time": "20:15", "duration": 30},
+    {"task": "Power Break / Mental Prep", "time": "20:45", "duration": 15},
+    
+    # Phase 4: THE STRATEGY & EMPIRE
+    {"task": "TRADING (Sniper focus)", "time": "21:00", "duration": 60},
+    {"task": "APTITUDE STUDY", "time": "22:00", "duration": 60},
+    {"task": "CODING (Deep Work Mode: ON)", "time": "23:00", "duration": 120},
+    {"task": "CONTENT CREATION", "time": "01:00", "duration": 60},
+    {"task": "Brush & Sleep Prep", "time": "02:00", "duration": 10}
+]
 # Helper function to get India Time (IST)
 def get_ist_time():
     return datetime.utcnow() + timedelta(hours=5, minutes=30)
