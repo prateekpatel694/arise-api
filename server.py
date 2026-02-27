@@ -53,12 +53,14 @@ def get_ist_time():
     return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
 def calculate_rank(percentage):
-    if percentage >= 97: return "S"
+    if percentage >= 97: return "1%"
+    elif percentage >= 90: return "S"
     elif percentage >= 85: return "A"
     elif percentage >= 75: return "B"
     elif percentage >= 65: return "C"
     elif percentage >= 50: return "D"
-    else: return "E"
+    elif percentage >= 30: return "E"
+    else: return "F" # <30% par seedha F rank
 
 @app.get("/")
 async def health():
@@ -98,15 +100,13 @@ async def get_current_status(user_id: str = "default_user"):
         
         completion_percentage = 100.0 if is_sunday else (len(completed_today) / len(TASKS_LIST) * 100)
 
-        # --- DYNAMIC STATS & RANK CALCULATION ---
         total_tasks_done = sum(len(tasks) for tasks in history.values())
-        current_level = 1 + (total_tasks_done // 5) # Level up every 5 tasks
+        current_level = 1 + (total_tasks_done // 5) 
         
         active_days = len(history) if len(history) > 0 else 1
         avg_completion = (total_tasks_done / (active_days * len(TASKS_LIST))) * 100
         current_rank = calculate_rank(avg_completion)
         
-        # Stats increase automatically as you complete more tasks!
         stats = {
             "strength": 10 + int(total_tasks_done * 1.5),
             "vitality": 10 + int(total_tasks_done * 1.2),
@@ -177,7 +177,6 @@ async def update_task(req: TaskUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- GRAPH FIX (FORMATTED FOR FRONTEND) ---
 @app.get("/api/challenge/history")
 async def get_history(user_id: str = "default_user", days: int = 30):
     try:
