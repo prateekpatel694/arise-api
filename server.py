@@ -177,6 +177,7 @@ async def update_task(req: TaskUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- GRAPH & HISTORY FIX (MISSING DAYS = 0%) ---
 @app.get("/api/challenge/history")
 async def get_history(user_id: str = "default_user", days: int = 30):
     try:
@@ -187,14 +188,39 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         history_dict = user.get("history", {})
         formatted_history = []
         
-        for date_str, tasks in history_dict.items():
-            completion_percentage = (len(tasks) / len(TASKS_LIST)) * 100
+        # Aaj ki date
+        ist_now = get_ist_time()
+        today_date = ist_now.date()
+        
+        # Start date
+        start_date_str = user.get("start_date")
+        if start_date_str:
+            start_date = datetime.fromisoformat(start_date_str).date()
+        else:
+            start_date = today_date
+            
+        # Calculation limit
+        range_start = max(start_date, today_date - timedelta(days=days-1))
+        
+        current_iter_date = range_start
+        
+        # Ek-ek din check karega
+        while current_iter_date <= today_date:
+            date_str = current_iter_date.strftime("%Y-%m-%d")
+            
+            if date_str in history_dict:
+                tasks = history_dict[date_str]
+                completion_percentage = (len(tasks) / len(TASKS_LIST)) * 100
+            else:
+                completion_percentage = 0.0
+                
             formatted_history.append({
                 "date": date_str,
                 "completion_percentage": completion_percentage
             })
+            
+            current_iter_date += timedelta(days=1)
         
-        formatted_history.sort(key=lambda x: x["date"])
-        return {"history": formatted_history[-days:]}
+        return {"history": formatted_history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
