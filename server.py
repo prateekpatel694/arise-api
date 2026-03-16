@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 import motor.motor_asyncio
+import asyncio
+import urllib.request
 
 app = FastAPI()
 
@@ -60,7 +62,23 @@ def calculate_rank(percentage):
     elif percentage >= 65: return "C"
     elif percentage >= 50: return "D"
     elif percentage >= 30: return "E"
-    else: return "F" # <30% par seedha F rank
+    else: return "F"
+
+# --- HEARTBEAT PROTOCOL (NEVER SLEEP) ---
+async def keep_awake():
+    while True:
+        await asyncio.sleep(14 * 60) # Har 14 minute mein ping karega
+        try:
+            # Apne hi render link par request bhej kar jaga rakhega
+            urllib.request.urlopen("https://arise-api-backend.onrender.com/")
+            print("Heartbeat Sent: System is awake, Monarch!")
+        except Exception as e:
+            print(f"Heartbeat failed: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    # Jaise hi server on hoga, ye background alarm shuru ho jayega
+    asyncio.create_task(keep_awake())
 
 @app.get("/")
 async def health():
@@ -82,12 +100,26 @@ async def get_current_status(user_id: str = "default_user"):
         day_of_week = ist_now.strftime("%A")
         is_sunday = day_of_week == "Sunday"
         
+        # --- BULLETPROOF DATE PARSING ---
         start_date_str = user.get("start_date")
-        start_date = datetime.fromisoformat(start_date_str)
+        try:
+            if start_date_str:
+                start_date = datetime.fromisoformat(start_date_str.replace("Z", "+00:00"))
+            else:
+                start_date = ist_now
+        except Exception:
+            start_date = ist_now
+            
         current_day = max(1, (ist_now.date() - start_date.date()).days + 1)
 
-        history = user.get("history", {})
-        completed_today = history.get(today_str, [])
+        # --- BULLETPROOF HISTORY ---
+        history = user.get("history")
+        if not isinstance(history, dict):
+            history = {}
+            
+        completed_today = history.get(today_str)
+        if not isinstance(completed_today, list):
+            completed_today = []
 
         tasks_response = []
         for idx, t in enumerate(TASKS_LIST):
@@ -100,7 +132,7 @@ async def get_current_status(user_id: str = "default_user"):
         
         completion_percentage = 100.0 if is_sunday else (len(completed_today) / len(TASKS_LIST) * 100)
 
-        total_tasks_done = sum(len(tasks) for tasks in history.values())
+        total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
         current_level = 1 + (total_tasks_done // 5) 
         
         active_days = len(history) if len(history) > 0 else 1
@@ -121,7 +153,7 @@ async def get_current_status(user_id: str = "default_user"):
                 "current_rank": current_rank,
                 "current_level": current_level,
                 "stats": stats,
-                "start_date": start_date_str
+                "start_date": start_date_str if start_date_str else ist_now.isoformat()
             },
             "today": {
                 "day_number": current_day,
@@ -133,7 +165,8 @@ async def get_current_status(user_id: str = "default_user"):
             }
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Sync failed")
+        print(f"CRITICAL ERROR IN CURRENT STATUS: {e}")
+        return {"active": False, "error": str(e)}
 
 @app.post("/api/challenge/start")
 async def start_challenge(req: StartRequest):
@@ -164,7 +197,10 @@ async def update_task(req: TaskUpdate):
             raise HTTPException(status_code=404, detail="User not found")
         
         history = user.get("history", {})
+        if not isinstance(history, dict): history = {}
+            
         completed_today = history.get(today_str, [])
+        if not isinstance(completed_today, list): completed_today = []
         
         if req.completed and req.task_index not in completed_today:
             completed_today.append(req.task_index)
@@ -177,7 +213,6 @@ async def update_task(req: TaskUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- GRAPH & HISTORY FIX (MISSING DAYS = 0%) ---
 @app.get("/api/challenge/history")
 async def get_history(user_id: str = "default_user", days: int = 30):
     try:
@@ -185,30 +220,28 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         if not user:
             return {"history": []}
         
-        history_dict = user.get("history", {})
+        history_dict = user.get("history")
+        if not isinstance(history_dict, dict): history_dict = {}
+            
         formatted_history = []
-        
-        # Aaj ki date
         ist_now = get_ist_time()
         today_date = ist_now.date()
         
-        # Start date
         start_date_str = user.get("start_date")
-        if start_date_str:
-            start_date = datetime.fromisoformat(start_date_str).date()
-        else:
+        try:
+            if start_date_str:
+                start_date = datetime.fromisoformat(start_date_str.replace("Z", "+00:00")).date()
+            else:
+                start_date = today_date
+        except Exception:
             start_date = today_date
             
-        # Calculation limit
         range_start = max(start_date, today_date - timedelta(days=days-1))
-        
         current_iter_date = range_start
         
-        # Ek-ek din check karega
         while current_iter_date <= today_date:
             date_str = current_iter_date.strftime("%Y-%m-%d")
-            
-            if date_str in history_dict:
+            if date_str in history_dict and isinstance(history_dict[date_str], list):
                 tasks = history_dict[date_str]
                 completion_percentage = (len(tasks) / len(TASKS_LIST)) * 100
             else:
@@ -218,7 +251,6 @@ async def get_history(user_id: str = "default_user", days: int = 30):
                 "date": date_str,
                 "completion_percentage": completion_percentage
             })
-            
             current_iter_date += timedelta(days=1)
         
         return {"history": formatted_history}
