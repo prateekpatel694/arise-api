@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import motor.motor_asyncio
 import asyncio
 import urllib.request
-import json # Naya import
 
 app = FastAPI()
 
@@ -63,22 +62,20 @@ def calculate_rank(percentage):
     elif percentage >= 65: return "C"
     elif percentage >= 50: return "D"
     elif percentage >= 30: return "E"
-    else: return "F" # <30% par F rank seedha
+    else: return "F" 
 
 # --- HEARTBEAT PROTOCOL (NEVER SLEEP) ---
 async def keep_awake():
     while True:
-        await asyncio.sleep(14 * 60) # Har 14 minute mein ping karega
+        await asyncio.sleep(14 * 60) 
         try:
-            # Apne hi render link par request bhej kar jaga rakhega. Timeout added to prevent hang.
-            urllib.request.urlopen("https://arise-api-backend.onrender.com/", timeout=10)
+            urllib.request.urlopen("https://arise-api-backend.onrender.com/")
             print("Heartbeat Sent: System is awake, Monarch!")
         except Exception as e:
             print(f"Heartbeat failed: {e}")
 
 @app.on_event("startup")
 async def startup_event():
-    # Jaise hi server on hoga, ye background alarm shuru ho jayega
     asyncio.create_task(keep_awake())
 
 @app.get("/")
@@ -101,27 +98,24 @@ async def get_current_status(user_id: str = "default_user"):
         day_of_week = ist_now.strftime("%A")
         is_sunday = day_of_week == "Sunday"
         
-        # --- BULLETPROOF DATE PARSING ---
         start_date_str = user.get("start_date")
         try:
             if start_date_str:
-                # Replace 'Z' if frontend saved it in UTC JS format
                 start_date = datetime.fromisoformat(start_date_str.replace("Z", "+00:00"))
             else:
                 start_date = ist_now
         except Exception:
-            start_date = ist_now # Agar date corrupt hai, toh aaj se shuru karega crash hone ki jagah
+            start_date = ist_now 
             
         current_day = max(1, (ist_now.date() - start_date.date()).days + 1)
 
-        # --- BULLETPROOF HISTORY ---
         history = user.get("history")
         if not isinstance(history, dict):
-            history = {}
+            history = {} 
             
         completed_today = history.get(today_str)
         if not isinstance(completed_today, list):
-            completed_today = []
+            completed_today = [] 
 
         tasks_response = []
         for idx, t in enumerate(TASKS_LIST):
@@ -133,25 +127,9 @@ async def get_current_status(user_id: str = "default_user"):
             })
         
         completion_percentage = 100.0 if is_sunday else (len(completed_today) / len(TASKS_LIST) * 100)
-
         total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
         current_level = 1 + (total_tasks_done // 5) 
-        
-        # ACTIVE DAYS PENALTY FIXED FOR RANK (Missing days penalty is applied)
-        history_history_list = []
-        range_start = start_date.date()
-        current_iter_date = range_start
-        today_date = ist_now.date()
-        
-        while current_iter_date <= today_date:
-            date_str = current_iter_date.strftime("%Y-%m-%d")
-            # This is correct. For rank calculation, missing days (not in history_dict) must count as 0%.
-            history_history_list.append(date_str)
-            current_iter_date += timedelta(days=1)
-        
-        active_days = len(history_history_list) if len(history_history_list) > 0 else 1
-        avg_completion = (total_tasks_done / (active_days * len(TASKS_LIST))) * 100
-        current_rank = calculate_rank(avg_completion)
+        current_rank_daily = calculate_rank(completion_percentage)
         
         stats = {
             "strength": 10 + int(total_tasks_done * 1.5),
@@ -159,12 +137,12 @@ async def get_current_status(user_id: str = "default_user"):
             "agility": 10 + int(total_tasks_done * 1.0),
             "recovery": 10 + int(total_tasks_done * 0.8)
         }
-
+        
         return {
             "active": True,
             "challenge": {
                 "current_day": current_day,
-                "current_rank": current_rank,
+                "current_rank": current_rank_daily, 
                 "current_level": current_level,
                 "stats": stats,
                 "start_date": start_date_str if start_date_str else ist_now.isoformat()
@@ -174,13 +152,12 @@ async def get_current_status(user_id: str = "default_user"):
                 "date": today_str,
                 "day_of_week": day_of_week,
                 "tasks": tasks_response,
-                "completion_percentage": completion_percentage,
+                "completion_percentage": completion_percentage, 
                 "is_sunday": is_sunday
             }
         }
     except Exception as e:
         print(f"CRITICAL ERROR IN CURRENT STATUS: {e}")
-        # Ab app freeze nahi hoga, safely false return karega loop todne ke liye
         return {"active": False, "error": str(e)}
 
 @app.post("/api/challenge/start")
@@ -251,22 +228,27 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         except Exception:
             start_date = today_date
             
-        # Calculation limit
         range_start = max(start_date, today_date - timedelta(days=days-1))
-        
         current_iter_date = range_start
         
-        # Ek-ek din check karega. 0% days penalty fixed.
         while current_iter_date <= today_date:
             date_str = current_iter_date.strftime("%Y-%m-%d")
-            if date_str in history_dict and isinstance(history_dict[date_str], list):
+            day_name = current_iter_date.strftime("%A")
+            day_num = max(1, (current_iter_date - start_date).days + 1)
+            
+            # SUNDAY FIX: Agar sunday hai toh automatic 100%
+            if day_name == "Sunday":
+                completion_percentage = 100.0
+            elif date_str in history_dict and isinstance(history_dict[date_str], list):
                 tasks = history_dict[date_str]
                 completion_percentage = (len(tasks) / len(TASKS_LIST)) * 100
             else:
                 completion_percentage = 0.0
                 
             formatted_history.append({
+                "day_number": day_num,
                 "date": date_str,
+                "day_of_week": day_name,
                 "completion_percentage": completion_percentage
             })
             current_iter_date += timedelta(days=1)
