@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import motor.motor_asyncio
 import asyncio
 import urllib.request
+import json # Naya import
 
 app = FastAPI()
 
@@ -69,8 +70,8 @@ async def keep_awake():
     while True:
         await asyncio.sleep(14 * 60) # Har 14 minute mein ping karega
         try:
-            # Apne hi render link par request bhej kar jaga rakhega
-            urllib.request.urlopen("https://arise-api-backend.onrender.com/")
+            # Apne hi render link par request bhej kar jaga rakhega. Timeout added to prevent hang.
+            urllib.request.urlopen("https://arise-api-backend.onrender.com/", timeout=10)
             print("Heartbeat Sent: System is awake, Monarch!")
         except Exception as e:
             print(f"Heartbeat failed: {e}")
@@ -104,11 +105,12 @@ async def get_current_status(user_id: str = "default_user"):
         start_date_str = user.get("start_date")
         try:
             if start_date_str:
+                # Replace 'Z' if frontend saved it in UTC JS format
                 start_date = datetime.fromisoformat(start_date_str.replace("Z", "+00:00"))
             else:
                 start_date = ist_now
         except Exception:
-            start_date = ist_now
+            start_date = ist_now # Agar date corrupt hai, toh aaj se shuru karega crash hone ki jagah
             
         current_day = max(1, (ist_now.date() - start_date.date()).days + 1)
 
@@ -143,30 +145,13 @@ async def get_current_status(user_id: str = "default_user"):
         
         while current_iter_date <= today_date:
             date_str = current_iter_date.strftime("%Y-%m-%d")
-            # For rank calculation we just need to know if the day exists and has a value
-            # This logic doesn't apply to graph itself, just to calculate the correct rank
-            # To fix the glitch image we must calculate correct daily rank point
-            # We fix history graph logic in frontend below, this part is backend current rank.
+            # This is correct. For rank calculation, missing days (not in history_dict) must count as 0%.
             history_history_list.append(date_str)
             current_iter_date += timedelta(days=1)
         
         active_days = len(history_history_list) if len(history_history_list) > 0 else 1
         avg_completion = (total_tasks_done / (active_days * len(TASKS_LIST))) * 100
-        # Wait, user glitch shows correct LEVEL, just rank is wrong for today.
-        # User LVL is derived from total tasks done.
-        # So we should calculate daily rank based on daily percentage and LVL on history total
-        # LVL logic is `1 + (total_tasks_done // 5)`. For LVL 9, total done >= 40. For Wed Mar 18 this is reasonable.
-        # So backend calculation for LVL is correct, flaw is on frontend visualization to use this correctly
-        # The rank diamond we fix in frontend below. But to make this solid,
-        # we also fix backend current_rank to be dynamic daily.
-        
-        # FIX: Calculate current daily rank point for diamond and text
-        # The text "100% complete" is correct, but the symbol 'A' shows flawed logic.
-        # So we make this dynamic based on DAILY percentage to fix the glitch image.
-        
-        # Calculate daily percentage again for clarity
-        daily_percent = completion_percentage 
-        current_rank_daily = calculate_rank(daily_percent)
+        current_rank = calculate_rank(avg_completion)
         
         stats = {
             "strength": 10 + int(total_tasks_done * 1.5),
@@ -175,17 +160,11 @@ async def get_current_status(user_id: str = "default_user"):
             "recovery": 10 + int(total_tasks_done * 0.8)
         }
 
-        # User Glitch: 100% and LVL 9 but Rank A for diamond.
-        # This part is backend, sending `current_rank: "A"`.
-        # Agent turn 3 calculate_rank already has S for >=90% and 1% for >=97%.
-        # So with today at 100%, the backend is likely running outdated code without 1%.
-        # I provide the full updated calculate_rank again. Commit & Sync must be complete on user end.
-        
         return {
             "active": True,
             "challenge": {
                 "current_day": current_day,
-                "current_rank": current_rank_daily, # We send correct dynamic DAILY rank now
+                "current_rank": current_rank,
                 "current_level": current_level,
                 "stats": stats,
                 "start_date": start_date_str if start_date_str else ist_now.isoformat()
@@ -195,12 +174,13 @@ async def get_current_status(user_id: str = "default_user"):
                 "date": today_str,
                 "day_of_week": day_of_week,
                 "tasks": tasks_response,
-                "completion_percentage": completion_percentage, # Today's percentage text is correct on UI
+                "completion_percentage": completion_percentage,
                 "is_sunday": is_sunday
             }
         }
     except Exception as e:
         print(f"CRITICAL ERROR IN CURRENT STATUS: {e}")
+        # Ab app freeze nahi hoga, safely false return karega loop todne ke liye
         return {"active": False, "error": str(e)}
 
 @app.post("/api/challenge/start")
@@ -282,9 +262,6 @@ async def get_history(user_id: str = "default_user", days: int = 30):
             if date_str in history_dict and isinstance(history_dict[date_str], list):
                 tasks = history_dict[date_str]
                 completion_percentage = (len(tasks) / len(TASKS_LIST)) * 100
-                # User glitch: Wed Mar 18 shows 100%. History list below will have 100%.
-                # Graph visualization in frontend will show this point at Rank zone correctly.
-                # Glitch image is Rank diamond display flaw.
             else:
                 completion_percentage = 0.0
                 
