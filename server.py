@@ -4,8 +4,6 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 import motor.motor_asyncio
-import asyncio
-import urllib.request
 
 app = FastAPI()
 
@@ -63,20 +61,6 @@ def calculate_rank(percentage):
     elif percentage >= 50: return "D"
     elif percentage >= 30: return "E"
     else: return "F" 
-
-# --- HEARTBEAT PROTOCOL (NEVER SLEEP) ---
-async def keep_awake():
-    while True:
-        await asyncio.sleep(14 * 60) 
-        try:
-            urllib.request.urlopen("https://arise-api-backend.onrender.com/")
-            print("Heartbeat Sent: System is awake, Monarch!")
-        except Exception as e:
-            print(f"Heartbeat failed: {e}")
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(keep_awake())
 
 @app.get("/")
 async def health():
@@ -236,7 +220,6 @@ async def get_history(user_id: str = "default_user", days: int = 30):
             day_name = current_iter_date.strftime("%A")
             day_num = max(1, (current_iter_date - start_date).days + 1)
             
-            # SUNDAY FIX: Agar sunday hai toh automatic 100%
             if day_name == "Sunday":
                 completion_percentage = 100.0
             elif date_str in history_dict and isinstance(history_dict[date_str], list):
