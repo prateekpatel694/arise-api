@@ -10,12 +10,13 @@ import os
 
 app = FastAPI()
 
-# --- DATABASE CONFIGURATION ---
+# --- DATABASE CONFIGURATION (PURANE DATABASE SE MATCHED) ---
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://monar:king123@cluster0.vytusx9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-db = client.shadow_db
+
+# 🎯 EXACT DATABASE NAME REVERTED TO SHADOW_PRESENTATION
+db = client.shadow_presentation
 users_collection = db.users
-custom_tasks_collection = db.custom_tasks
 
 JWT_SECRET = os.getenv("JWT_SECRET", "shadow_monarch_secret_key_123")
 
@@ -26,6 +27,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- DEFAULT PROTOCOL TASKS ---
+DEFAULT_TASKS = [
+    {"task": "Utho & 1 Glass Paani", "time": "07:30", "duration": 5, "task_type": "permanent"},
+    {"task": "Quick Fresh & Meditation", "time": "07:35", "duration": 15, "task_type": "permanent"},
+    {"task": "Shower, Breakfast & Ready", "time": "07:45", "duration": 45, "task_type": "permanent"},
+    {"task": "Commute to College", "time": "08:30", "duration": 30, "task_type": "permanent"},
+    {"task": "COLLEGE HOURS + Lunch Missions", "time": "09:00", "duration": 495, "task_type": "permanent"},
+    {"task": "Ghar wapsi + Gear up", "time": "17:15", "duration": 15, "task_type": "permanent"},
+    {"task": "GYM WARFARE (Push limits!)", "time": "17:30", "duration": 105, "task_type": "permanent"},
+    {"task": "Shower & Fresh", "time": "19:15", "duration": 30, "task_type": "permanent"},
+    {"task": "Hair Oiling + Immunity Drink", "time": "19:45", "duration": 30, "task_type": "permanent"},
+    {"task": "Dinner (Recovery fuel)", "time": "20:15", "duration": 30, "task_type": "permanent"},
+    {"task": "Power Break / Mental Prep", "time": "20:45", "duration": 15, "task_type": "permanent"},
+    {"task": "TRADING (Sniper focus)", "time": "21:00", "duration": 60, "task_type": "permanent"},
+    {"task": "APTITUDE STUDY", "time": "22:00", "duration": 60, "task_type": "permanent"},
+    {"task": "CODING (Deep Work Mode: ON)", "time": "23:00", "duration": 120, "task_type": "permanent"},
+    {"task": "CONTENT CREATION", "time": "01:00", "duration": 60, "task_type": "permanent"},
+    {"task": "Brush & Sleep Prep", "time": "02:00", "duration": 10, "task_type": "permanent"}
+]
 
 # --- PYDANTIC SCHEMAS ---
 class AuthRequest(BaseModel):
@@ -41,10 +62,10 @@ class TaskUpdate(BaseModel):
     task_index: int
     completed: bool
 
-class CustomTaskRequest(BaseModel):
+class CustomTaskReq(BaseModel):
     user_id: str = "default_user"
     task: str
-    time: str
+    time: str = "12:00 PM"
     duration: int = 30
     task_type: str = "permanent"
     start_date: Optional[str] = None
@@ -62,7 +83,25 @@ def calculate_rank(percentage):
     elif percentage >= 65: return "C"
     elif percentage >= 50: return "D"
     elif percentage >= 30: return "E"
-    else: return "F"
+    else: return "F" 
+
+def get_active_tasks_for_date(user_tasks, target_date):
+    active = []
+    for g_idx, t in enumerate(user_tasks):
+        t_type = t.get("task_type", "permanent")
+        if t_type == "permanent":
+            active.append((g_idx, t))
+        elif t_type == "temporary":
+            try:
+                s_date = datetime.strptime(t.get("start_date"), "%Y-%m-%d").date()
+                e_date = datetime.strptime(t.get("end_date"), "%Y-%m-%d").date()
+                if s_date <= target_date <= e_date:
+                    active.append((g_idx, t))
+            except Exception:
+                pass
+    
+    active.sort(key=lambda x: 0 if x[1].get("task_type", "permanent") == "permanent" else 1)
+    return active
 
 def hash_password(password: str) -> str:
     pwd_bytes = password.encode('utf-8')
@@ -78,7 +117,7 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
-# --- SYSTEM HEALTH ROUTE ---
+# --- HEALTH CHECK ---
 @app.api_route("/", methods=["GET", "HEAD"])
 async def health():
     try:
@@ -87,7 +126,7 @@ async def health():
     except Exception as e:
         return {"status": "Online", "database": f"Error: {str(e)} ❌"}
 
-# --- AUTHENTICATION ENDPOINTS ---
+# --- AUTHENTICATION ROUTES ---
 @app.post("/api/auth/register")
 @app.post("/auth/register")
 async def register(user_data: AuthRequest):
@@ -105,7 +144,8 @@ async def register(user_data: AuthRequest):
         "user_id": email_clean,
         "start_date": ist_now.isoformat(),
         "active": True,
-        "history": {}
+        "history": {},
+        "tasks": [] # Dynamic Tasks for New Accounts
     }
 
     result = await users_collection.insert_one(new_user)
@@ -145,11 +185,13 @@ async def get_current_status(user_id: str = "default_user"):
     try:
         user = await users_collection.find_one({"user_id": user_id})
         if not user:
-            user = {"user_id": user_id, "start_date": get_ist_time().isoformat(), "history": {}}
-
+            return {"active": False}
+        
+        user_tasks = user.get("tasks", DEFAULT_TASKS)
         ist_now = get_ist_time()
         today_str = ist_now.strftime("%Y-%m-%d")
         day_of_week = ist_now.strftime("%A")
+        is_sunday = day_of_week == "Sunday"
         
         start_date_str = user.get("start_date")
         try:
@@ -158,53 +200,44 @@ async def get_current_status(user_id: str = "default_user"):
             else:
                 start_date = ist_now
         except Exception:
-            start_date = ist_now
+            start_date = ist_now 
             
         current_day = max(1, (ist_now.date() - start_date.date()).days + 1)
 
-        user_tasks_cursor = custom_tasks_collection.find({"user_id": user_id})
-        user_tasks = await user_tasks_cursor.to_list(length=100)
-
-        tasks_list = []
-        for t in user_tasks:
-            if t.get("task_type") == "temporary":
-                s_date = t.get("start_date")
-                e_date = t.get("end_date")
-                if s_date and e_date and not (s_date <= today_str <= e_date):
-                    continue
+        history = user.get("history")
+        if not isinstance(history, dict): history = {} 
             
-            tasks_list.append({
-                "task": t.get("task"),
-                "time": t.get("time", "12:00 PM"),
-                "duration": t.get("duration", 30),
-                "task_type": t.get("task_type", "permanent"),
-                "start_date": t.get("start_date"),
-                "end_date": t.get("end_date")
-            })
+        completed_today = history.get(today_str)
+        if not isinstance(completed_today, list): completed_today = [] 
 
-        history = user.get("history", {})
-        if not isinstance(history, dict): history = {}
-            
-        completed_today = history.get(today_str, [])
-        if not isinstance(completed_today, list): completed_today = []
-
+        active_tasks = get_active_tasks_for_date(user_tasks, ist_now.date())
+        
         tasks_response = []
-        for idx, t in enumerate(tasks_list):
+        permanent_total = 0
+        permanent_completed = 0
+        
+        for g_idx, t in active_tasks:
+            is_completed = g_idx in completed_today
+            t_type = t.get("task_type", "permanent")
+            
+            if t_type == "permanent":
+                permanent_total += 1
+                if is_completed:
+                    permanent_completed += 1
+                    
             tasks_response.append({
                 "task": t["task"], 
                 "time": t["time"], 
                 "duration": t["duration"],
-                "task_type": t["task_type"],
+                "completed": is_completed,
+                "task_type": t_type,
                 "start_date": t.get("start_date"),
-                "end_date": t.get("end_date"),
-                "completed": idx in completed_today
+                "end_date": t.get("end_date")
             })
         
-        total_tasks_count = len(tasks_response)
-        completion_percentage = (len(completed_today) / total_tasks_count * 100) if total_tasks_count > 0 else 0.0
-        
+        completion_percentage = 100.0 if is_sunday else ( (permanent_completed / permanent_total * 100) if permanent_total > 0 else 100.0 )
         total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
-        current_level = 1 + (total_tasks_done // 5)
+        current_level = 1 + (total_tasks_done // 5) 
         current_rank_daily = calculate_rank(completion_percentage)
         
         stats = {
@@ -229,28 +262,63 @@ async def get_current_status(user_id: str = "default_user"):
                 "day_of_week": day_of_week,
                 "tasks": tasks_response,
                 "completion_percentage": completion_percentage, 
-                "is_sunday": False
+                "is_sunday": is_sunday
             }
         }
     except Exception as e:
         print(f"CRITICAL ERROR IN CURRENT STATUS: {e}")
         return {"active": False, "error": str(e)}
 
+@app.post("/api/challenge/start")
+async def start_challenge(req: StartRequest):
+    try:
+        ist_now = get_ist_time()
+        existing = await users_collection.find_one({"user_id": req.user_id})
+        if existing:
+            await users_collection.update_one(
+                {"user_id": req.user_id}, 
+                {"$set": {"active": True}}
+            )
+        else:
+            new_user = {
+                "user_id": req.user_id,
+                "start_date": ist_now.isoformat(),
+                "active": True,
+                "history": {},
+                "tasks": DEFAULT_TASKS
+            }
+            await users_collection.insert_one(new_user)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/challenge/custom-task")
-async def add_custom_task(req: CustomTaskRequest):
+async def add_custom_task(req: CustomTaskReq):
     try:
         new_task = {
-            "user_id": req.user_id,
             "task": req.task,
             "time": req.time,
             "duration": req.duration,
             "task_type": req.task_type,
             "start_date": req.start_date,
-            "end_date": req.end_date,
-            "created_at": get_ist_time().isoformat()
+            "end_date": req.end_date
         }
-        await custom_tasks_collection.insert_one(new_task)
-        return {"success": True, "message": "Task added successfully"}
+        
+        user = await users_collection.find_one({"user_id": req.user_id})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if "tasks" not in user:
+            await users_collection.update_one(
+                {"user_id": req.user_id}, 
+                {"$set": {"tasks": DEFAULT_TASKS}}
+            )
+            
+        await users_collection.update_one(
+            {"user_id": req.user_id},
+            {"$push": {"tasks": new_task}}
+        )
+        return {"success": True, "message": "Custom task added to protocol!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -260,9 +328,16 @@ async def update_task(req: TaskUpdate):
         ist_now = get_ist_time()
         today_str = ist_now.strftime("%Y-%m-%d")
         user = await users_collection.find_one({"user_id": req.user_id})
-        
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
+        
+        user_tasks = user.get("tasks", DEFAULT_TASKS)
+        active_tasks = get_active_tasks_for_date(user_tasks, ist_now.date())
+        
+        if req.task_index >= len(active_tasks):
+            raise HTTPException(status_code=400, detail="Invalid task index sync")
+            
+        global_idx = active_tasks[req.task_index][0]
         
         history = user.get("history", {})
         if not isinstance(history, dict): history = {}
@@ -270,18 +345,22 @@ async def update_task(req: TaskUpdate):
         completed_today = history.get(today_str, [])
         if not isinstance(completed_today, list): completed_today = []
         
-        if req.completed and req.task_index not in completed_today:
-            completed_today.append(req.task_index)
-        elif not req.completed and req.task_index in completed_today:
-            completed_today.remove(req.task_index)
+        if req.completed and global_idx not in completed_today:
+            completed_today.append(global_idx)
+        elif not req.completed and global_idx in completed_today:
+            completed_today.remove(global_idx)
             
         history[today_str] = completed_today
         await users_collection.update_one({"user_id": req.user_id}, {"$set": {"history": history}})
-        return {"success": True}
+        
+        perm_total = sum(1 for _, t in active_tasks if t.get("task_type", "permanent") == "permanent")
+        perm_completed = sum(1 for g_idx in completed_today if user_tasks[g_idx].get("task_type", "permanent") == "permanent")
+        new_pct = 100.0 if ist_now.strftime("%A") == "Sunday" else ( (perm_completed / perm_total * 100) if perm_total > 0 else 100.0 )
+        
+        return {"success": True, "completion_percentage": new_pct}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/challenge/stats")
 @app.get("/api/challenge/history")
 async def get_history(user_id: str = "default_user", days: int = 30):
     try:
@@ -289,9 +368,10 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         if not user:
             return {"history": []}
         
-        history_dict = user.get("history", {})
+        history_dict = user.get("history")
         if not isinstance(history_dict, dict): history_dict = {}
-            
+        
+        user_tasks = user.get("tasks", DEFAULT_TASKS)
         formatted_history = []
         ist_now = get_ist_time()
         today_date = ist_now.date()
@@ -313,23 +393,26 @@ async def get_history(user_id: str = "default_user", days: int = 30):
             day_name = current_iter_date.strftime("%A")
             day_num = max(1, (current_iter_date - start_date).days + 1)
             
-            completed_count = len(history_dict.get(date_str, []))
-            user_tasks_count = await custom_tasks_collection.count_documents({"user_id": user_id})
-            completion_percentage = (completed_count / user_tasks_count * 100) if user_tasks_count > 0 else 0.0
+            active_for_day = get_active_tasks_for_date(user_tasks, current_iter_date)
+            perm_total = sum(1 for _, t in active_for_day if t.get("task_type", "permanent") == "permanent")
+            
+            if day_name == "Sunday":
+                completion_percentage = 100.0
+            elif date_str in history_dict and isinstance(history_dict[date_str], list):
+                completed_indices = history_dict[date_str]
+                perm_completed = sum(1 for g_idx in completed_indices if g_idx < len(user_tasks) and user_tasks[g_idx].get("task_type", "permanent") == "permanent")
+                completion_percentage = (perm_completed / perm_total * 100) if perm_total > 0 else 100.0
+            else:
+                completion_percentage = 0.0
                 
             formatted_history.append({
                 "day_number": day_num,
                 "date": date_str,
                 "day_of_week": day_name,
-                "completion_percentage": completion_percentage,
-                "rank": calculate_rank(completion_percentage)
+                "completion_percentage": completion_percentage
             })
             current_iter_date += timedelta(days=1)
         
-        return {
-            "current_rank": calculate_rank(formatted_history[-1]["completion_percentage"] if formatted_history else 0),
-            "current_level": 1 + (sum(len(v) for v in history_dict.values() if isinstance(v, list)) // 5),
-            "history": formatted_history
-        }
+        return {"history": formatted_history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
