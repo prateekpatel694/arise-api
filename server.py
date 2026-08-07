@@ -539,4 +539,4 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         
         return {"history": formatted_history}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))         
