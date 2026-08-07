@@ -257,7 +257,7 @@ async def reset_password(req: VerifyResetReq):
 
     return {"success": True, "message": "Password reset successful! You can now login with your new password."}
 
-# --- QUEST & CHALLENGE MANAGEMENT ---
+# --- QUEST & CHALLENGE MANAGEMENT (PERMANENT TASKS EQUAL 100% DIVISION) ---
 @app.get("/api/challenge/current")
 async def get_current_status(user_id: str = "default_user"):
     try:
@@ -284,21 +284,53 @@ async def get_current_status(user_id: str = "default_user"):
         history = user.get("history", {})
         if not isinstance(history, dict): history = {}
             
-        completed_today = history.get(today_str, [])
-        if not isinstance(completed_today, list): completed_today = []
+        completed_today_indices = history.get(today_str, [])
+        if not isinstance(completed_today_indices, list): completed_today_indices = []
 
         tasks_response = []
+        
+        permanent_total_count = 0
+        permanent_completed_count = 0
+
         for idx, t in enumerate(user_tasks):
+            task_type = t.get("task_type", "permanent")
+            t_start = t.get("start_date")
+            t_end = t.get("end_date")
+
+            is_locked = False
+            is_expired = False
+
+            if task_type == "temporary":
+                if t_end and today_str > t_end:
+                    is_expired = True
+                elif t_start and today_str < t_start:
+                    is_locked = True
+
+            if is_expired:
+                continue
+
+            is_done = idx in completed_today_indices
+
+            if task_type == "permanent":
+                permanent_total_count += 1
+                if is_done:
+                    permanent_completed_count += 1
+
             tasks_response.append({
                 "task": t["task"], 
                 "time": t["time"], 
                 "duration": t["duration"],
-                "completed": idx in completed_today,
-                "task_type": t.get("task_type", "permanent")
+                "completed": is_done,
+                "task_type": task_type,
+                "start_date": t_start,
+                "end_date": t_end,
+                "is_locked": is_locked
             })
         
-        total_tasks_count = len(tasks_response)
-        completion_percentage = 100.0 if is_sunday else ((len(completed_today) / total_tasks_count * 100) if total_tasks_count > 0 else 0.0)
+        # STRICT EQUAL 100% DIVISION AMONG PERMANENT TASKS
+        completion_percentage = 100.0 if is_sunday else (
+            (permanent_completed_count / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
+        )
         
         total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
         current_level = 1 + (total_tasks_done // 5)
@@ -325,8 +357,12 @@ async def get_current_status(user_id: str = "default_user"):
             if day_name == "Sunday":
                 c_percent = 100.0
             elif date_str in history and isinstance(history[date_str], list):
-                tasks_done_len = len(history[date_str])
-                c_percent = (tasks_done_len / total_tasks_count * 100) if total_tasks_count > 0 else 0.0
+                history_done_indices = history[date_str]
+                perm_done_hist = 0
+                for h_idx in history_done_indices:
+                    if 0 <= h_idx < len(user_tasks) and user_tasks[h_idx].get("task_type", "permanent") == "permanent":
+                        perm_done_hist += 1
+                c_percent = (perm_done_hist / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
             else:
                 c_percent = 0.0
                 
@@ -456,6 +492,10 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         if not isinstance(history_dict, dict): history_dict = {}
             
         user_tasks = user.get("tasks", [])
+        
+        # Calculate total permanent tasks count
+        permanent_total_count = sum(1 for t in user_tasks if t.get("task_type", "permanent") == "permanent")
+
         formatted_history = []
         ist_now = get_ist_time()
         today_date = ist_now.date()
@@ -480,8 +520,12 @@ async def get_history(user_id: str = "default_user", days: int = 30):
             if day_name == "Sunday":
                 completion_percentage = 100.0
             elif date_str in history_dict and isinstance(history_dict[date_str], list):
-                tasks = history_dict[date_str]
-                completion_percentage = (len(tasks) / len(user_tasks)) * 100 if len(user_tasks) > 0 else 0.0
+                history_done_indices = history_dict[date_str]
+                perm_done_hist = 0
+                for h_idx in history_done_indices:
+                    if 0 <= h_idx < len(user_tasks) and user_tasks[h_idx].get("task_type", "permanent") == "permanent":
+                        perm_done_hist += 1
+                completion_percentage = (perm_done_hist / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
             else:
                 completion_percentage = 0.0
                 
